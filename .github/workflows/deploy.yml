@@ -1,0 +1,64 @@
+name: Build & Deploy Encrypted Payloads
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger from Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout gate repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install cryptography
+        run: pip install cryptography
+
+      - name: Fetch DLL from private repo
+        env:
+          PAT: ${{ secrets.PRIVATE_REPO_PAT }}
+          REPO: ${{ secrets.PRIVATE_REPO }}
+          DLL: ${{ secrets.DLL_PATH }}
+        run: |
+          curl -L -f \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            -o HyperionClient.dll \
+            "https://api.github.com/repos/$REPO/contents/$DLL"
+          echo "DLL downloaded: $(wc -c < HyperionInternal.dll) bytes"
+
+      - name: Write Userbase
+        env:
+          USERBASE: ${{ secrets.USERBASE }}
+        run: echo "$USERBASE" > Userbase.txt
+
+      - name: Build encrypted payloads
+        run: python build_payloads.py
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
